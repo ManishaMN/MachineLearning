@@ -1,0 +1,164 @@
+---
+title: "Machine Learning - Resampling, model selection, Regularization( Ridge, Lasso, Elastic net) "
+author: "Manisha"
+date: "2023-11-09"
+output: html_document
+---
+
+
+
+## Load data and libraries
+
+```{r data}
+library(AmesHousing)
+library(tidyverse)
+ames <- make_ordinal_ames()
+View(ames)
+```
+
+## Splitting data
+```{r split}
+
+ames <- ames %>% mutate(id = row_number())
+set.seed(4321)
+training <- ames %>% sample_frac(0.7)
+testing <- anti_join(ames, training, by = 'id')
+```
+
+#after initial exploration, selected variables
+```{r}
+training <- training %>% 
+  select(Sale_Price,
+         Bedroom_AbvGr,
+         Year_Built,
+         Mo_Sold,
+         Lot_Area,
+         Street,
+         Central_Air,
+         First_Flr_SF,
+         Second_Flr_SF,
+         Full_Bath,
+         Half_Bath,
+         Fireplaces,
+         Garage_Area,
+         Gr_Liv_Area, 
+         TotRms_AbvGrd)
+```
+
+#stepwise ( train function from caret package- stepwise with cross validation)
+```{r}
+library(caret)
+set.seed(9876)
+step.model <- caret::train(Sale_Price ~ ., data = training, #~. all variables
+                    method = "leapBackward",  #backward selection
+                    tuneGrid = data.frame(nvmax = 1:14), #tune grid to what aspects of models to tune, in step wise we can only tunenumber of variables, here max is 14
+                    trControl = trainControl(method = 'cv', # 10 fold cross validation for model selction in each process.
+                                             number = 10)
+                    )
+```
+
+##To explore results from backward selection
+```{r}
+step.model$results #shows results from each step in backward selection
+```
+
+## shows best values of tuning variables
+```{r}
+step.model$bestTune #here tuning variable is nvmax
+```
+
+##variables were in this final model can be attained (summary function on the finalModel element.)
+# six variables in the final model shown above are First_Flr_SF, Second_Flr_SF, Year_Built, Garage_Area, Bedroom_AbvGr, and Fireplaces. ( look at * symbol)
+```{r}
+summary(step.model$finalModel)
+```
+
+
+##Classic view of model building using this 6 variables( built on entire training with no cross validation)
+```{r}
+final.model1 <- glm(Sale_Price ~ First_Flr_SF + 
+                                 Second_Flr_SF + 
+                                 Year_Built + 
+                                 Garage_Area + 
+                                 Bedroom_AbvGr +
+                                 Fireplaces,
+                    data = training)
+
+summary(final.model1)
+```
+
+
+## ML view , no cross validation, backward selection on entire training, picking model with best 6 variables( count from step wise)
+## from ML approach :  5 variables of the six that are the same as the classical approach, but one that is different - Gr_Liv_Area.
+```{r}
+empty.model <- glm(Sale_Price ~ 1, data = training)
+full.model <- glm(Sale_Price ~ ., data = training)
+
+final.model2 <- step(empty.model, scope = list(lower = formula(empty.model),
+                                               upper = formula(full.model)),
+                     direction = "both", steps = 6, trace = FALSE)
+
+summary(final.model2)
+```
+
+##regularized regression
+```{r}
+set.seed(5)
+
+en.model <- caret::train(Sale_Price ~ ., data = training, #train function 
+                  method = "glmnet", #for regularized regression
+                  tuneGrid  # inside tunegrid multiple options to tune
+                  = expand.grid #fill in all combination values to tune 
+                  (
+                    .alpha = seq(0,1, by = 0.05), #balance between 2 penalities ( 0- ride, 1-lasso)
+                    .lambda = seq(100,60000, by = 1000) #different values of lambda penality using lambda function
+                    ), 
+                  trControl = trainControl(method = 'cv', 
+                                             number = 10) #tune using 10 fold cross validation
+                  )
+en.model$bestTune #to get optimal model alpha and lambda
+```
+## outside of train function ,glmnet function and package can also be used to fine tune lambda parameter
+## cv.glmnet - auto implement 10 fold crossvalidation( default, can be adjusted), however glmnet doesn't have ability to optimize alpha like train.
+
+##*******************************************************************************************************
+
+##building model with glmnet , using alpha=0.5 from previous 
+
+##1. create separet data matrices for predictor and target
+##using model.matrix - create any categorical dummy var
+##isolate target var into its own vector
+##in glmnet x= predictor, y= target
+##alpha 0.5 means elastic net( between lasso and ridge)
+## using plot function we can see impact of penality on coeff
+```{r}
+library(glmnet)
+
+train_x <- model.matrix(Sale_Price ~ ., data = training)[, -1]
+train_y <- training$Sale_Price
+
+ames_en <- glmnet(x = train_x,  y = train_y,  alpha = 0.5)
+
+plot(ames_en, xvar = "lambda")
+```
+##below comments are for above script and plot*********
+
+##glmnet standardizes variables before fitting reg model
+##top values from plot reperesnt how many variables are at each penality
+## Notice as the penalty increases, the number of variables decreases as variables are forced to zero
+
+##************************************************
+##cross validation with cv.glmnet ( default 10 fold), can evaluate and optimize lambda values
+```{r}
+set.seed(5)
+
+ames_en_cv <- cv.glmnet(x = train_x,  y = train_y,  alpha = 0.5)
+
+plot(ames_en_cv) #shows results from cross validation based on MSE
+# first vertical dash line for lambda value which minimizes MSE, 
+#second vertical dashed line is the largest lamda value that is one standard error above the minimum value.( useful for Lasso and elastic net)
+#***largest within one standard error would provide approximately the same MSE, but with a further reduction in the number of variables
+#*****to go from the first line to the second, the change in MSE is very small, but the reduction of variables is from 14 variables to around 5 variables.
+```
+
+
