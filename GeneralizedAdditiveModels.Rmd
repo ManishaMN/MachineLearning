@@ -1,0 +1,134 @@
+---
+title: "General Additive Models"
+author: "Manisha"
+date: "2023-11-09"
+output: html_document
+---
+
+
+## load data and main libraries
+```{r}
+setwd("C:\\Users\\manis\\Documents\\Fall3\\ML\\Notes")
+cement = read.csv("cement.csv")
+library(dplyr)
+library(ggplot2)
+View(cement)
+summary(cement)
+```
+
+##Piecewise linear regression
+## predicting STRENGTH using the RATIO variable as well the X2STAR variable which is (x1-k)x2
+ 
+```{r cars}
+cement.lm <- lm(STRENGTH ~ RATIO + X2STAR, data = cement)
+
+summary(cement.lm)
+```
+
+## Including Plots
+## in the plot below how above the knot value of 70, the slope and intercept of the regression line changes
+```{r plot, echo=FALSE}
+ggplot(cement, aes(x = RATIO, y = STRENGTH)) +
+  geom_point() +
+  geom_line(data = cement, aes(x = RATIO, y = cement.lm$fitted.values)) +
+  ylim(0,6)
+```
+##previous example dealt with piecewise functions that are continuous
+##model to make the linear discontinuous:
+## with addition of x2 line is no onger attached
+```{r}
+cement.lm <- lm(STRENGTH ~ RATIO + X2STAR + X2, data = cement)
+
+summary(cement.lm)
+
+qplot(RATIO, STRENGTH, group = X2, geom = c('point', 'smooth'), method = 'lm', data = cement, ylim = c(0,6))
+```
+###########MARS(EARTH)######################################
+
+#Garage no straight forward relation with Saleprice ( from Ames housing data)
+```{r}
+ggplot(training, aes(x = Garage_Area, y = Sale_Price)) +
+  geom_point()
+```
+
+##earth package is the earth function.
+```{r}
+library(earth)
+
+mars1 <- earth(Sale_Price ~ Garage_Area, data = training)
+summary(mars1)
+```
+##In above output 6 pieces defined by 5 knots ( coefficients attached to each of those pieces are the same as what we would have in piecewise linear regression) , at the bottom we have Generalized Rsquare and Rsquare value
+
+--
+
+## visualising piecewise relation with predicted values
+
+```{r}
+ggplot(training, aes(x = Garage_Area, y = Sale_Price)) +
+  geom_point() +
+  geom_line(data = training, aes(x = Garage_Area, y = mars1$fitted.values), color = "blue")
+```
+##building mars/earth on all variables in the data set
+```{r}
+mars2 <- earth(Sale_Price ~ ., data = training)
+summary(mars2)
+```
+## In the above output knot values are defined for all the varaibles that are in the model
+## 10 out of 14 orginal variables are used in final model
+## we have variable importance in the bottom, Rsquare & GRsquare value increased compared to single variable model, 
+## as other variables are added, Garage Area has less knots now, algorithm prunes the knots
+
+##variable importance
+##MARTH ranks variables by how many of these “best models” of each size that variable appears in. The more subsets (or “best models”) that a variable appears in, the more important the variable. 
+```{r}
+evimp(mars1)
+```
+##nsubsets - number of sets variable appears in
+----------
+
+###gam function from mgcv package and with Spline function on predictors
+```{r}
+library(mgcv)
+
+gam1 <- mgcv::gam(Sale_Price ~ s(Garage_Area), data = training)
+summary(gam1)
+#a section for coefficients that are not involved in splines and a section for smoothing terms.
+#p-value attached to the spline of Garage_Area shows the significance of that variable to the model as a whole.
+```
+
+##plot function (to see 'relationship between the variable and its predictions of the target. ')
+```{r}
+plot(gam1)
+```
+
+## GAM on all varaibles
+## categorical variables are entered as either character variables or with the factor function. The continuous variables are defined with the spline function s
+```{r}
+gam2 <- mgcv::gam(Sale_Price ~ s(Bedroom_AbvGr, k = 5) + 
+                               s(Year_Built) +
+                               s(Mo_Sold) +
+                               s(Lot_Area) +
+                               s(First_Flr_SF) + 
+                               s(Second_Flr_SF) +
+                               s(Garage_Area) +
+                               s(Gr_Liv_Area) +
+                               s(TotRms_AbvGrd) +
+                               Street +
+                               Central_Air +
+                               factor(Fireplaces) + 
+                               factor(Full_Bath) +
+                               factor(Half_Bath)
+                  , method = 'REML', data = training)
+summary(gam2)
+#top half of the output has the variables not in splines, while the bottom half has the spline variables.
+#**some variables with high p-values that could be removed from the model. 
+##select = TRUE then the model will penalize variables’ edf values. You can think of an edf value almost like a polynomial term.
+##The selection technique will zero out this edf value - essentially, zeroing out the variable itself.
+
+## here 'Mo_Sold variable is essentially zeroed from the model.'
+```
+
+
+
+
