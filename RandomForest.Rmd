@@ -1,0 +1,125 @@
+---
+title: "Random Forest"
+author: "Manisha"
+date: "2023-11-09"
+output: html_document
+---
+
+##  load libraries
+```{r cars}
+
+library(tidyverse)
+```
+
+## loading ames data , Splitting data
+```{r split}
+library(AmesHousing)
+ames <- make_ordinal_ames()
+ames <- ames %>% mutate(id = row_number())
+set.seed(4321)
+training <- ames %>% sample_frac(0.7)
+testing <- anti_join(ames, training, by = 'id')
+```
+
+#after initial exploration, selected variables
+```{r}
+training <- training %>% 
+  select(Sale_Price,
+         Bedroom_AbvGr,
+         Year_Built,
+         Mo_Sold,
+         Lot_Area,
+         Street,
+         Central_Air,
+         First_Flr_SF,
+         Second_Flr_SF,
+         Full_Bath,
+         Half_Bath,
+         Fireplaces,
+         Garage_Area,
+         Gr_Liv_Area, 
+         TotRms_AbvGrd)
+```
+
+## building random forest
+```{r }
+library(randomForest)
+
+training.df <- as.data.frame(training) # we need data in dataframe for random forest
+set.seed(12345)
+rf.ames <- randomForest(Sale_Price ~ ., data = training.df, ntree = 500, importance = TRUE) 
+#random forest function is one way in R to build randomforest model.
+# ntree - number of decision trees in ensemble model
+# importance = True will give variable importance from random forest
+```
+
+## plot - to see how increase in number of trees is increasing MSE of the model
+```{r}
+plot(rf.ames, main = "Number of Trees Compared to MSE")
+
+#MSE of the whole training set seems to level off around 250 trees. Beyond that, adding more trees only increases the computation time, but not the predictive power of the model.
+```
+##plot the variables by importance in the random forest.
+
+```{r}
+varImpPlot(rf.ames,
+           sort = TRUE, #sorts the variables from best to worst,
+           n.var = 10, #controls how many variables are shown
+           main = "Top 10 - Variable Importance")
+
+#The left-hand plot above (and left hand column in the table, next code) shows the percentage increase in MSE when the variable is “excluded” from the model. In other words, how much worse is the model when that variable’s impact is no longer there. The variables that make the model the worst by the most will be high in importance. The variable isn’t actually removed from the modeling process, but the values are permuted (randomly shuffled around) to remove the impact of that variable. By this metric, Year-Built is by far the most important variable.
+
+#The right-hand plot above (and right hand column in the table, next code) shows the increase in purity in the nodes of the tree - essentially measuring how much each variable improves the purity of the model when it is added. Again, Year_Built is at the top of the list.
+```
+##importance function will list the variables actual values of importance instead of just plotting them.
+
+```{r}
+importance(rf.ames)
+```
+
+##Tuning Random Forest
+
+##tuneRF function to use the out-of-bag samples to tune the mtry variable( number of variables at each split)
+##out-of-bag samples serve as cross-validations for each of the trees in the random forest
+##values of mtry will be evaluated by the out-of-bag error. The smaller the error, the better.
+```{r}
+set.seed(12345)
+tuneRF(x = training.df[,-1], y = training.df[,1], 
+       plot = TRUE, ntreeTry = 500, stepFactor = 0.5)
+
+#Based on the output below the mtry = 4 value of is the optimal value.
+#We can then build a model with the 250 trees and mtry = 4  value that was optimized from below
+```
+
+##buulding Random Forest with tune parameters
+```{r}
+set.seed(12345)
+rf.ames <- randomForest(Sale_Price ~ ., data = training.df, ntree = 250, mtry = 4, importance = TRUE)
+
+varImpPlot(rf.ames,
+           sort = TRUE,
+           n.var = 14,
+           main = "Order of Variables")
+```
+## one way of variable selction : create a completely random variable and put it in the model. We will then look at the variable importance of all the variables. The variables that are below the random variable should be considered for removal.
+
+```{r}
+training.df$random <- rnorm(2051) # rnorm function to create random variable with mean 0 and sd 1, 2051 number of variables in training
+
+set.seed(12345)
+rf.ames <- randomForest(Sale_Price ~ ., data = training.df, ntree = 500, mtry = 4, importance = TRUE)
+
+varImpPlot(rf.ames,
+           sort = TRUE,
+           n.var = 15,
+           main = "Look for Variables Below Random Variable")
+
+#Based on the plot on the left above, there is no variable below the random variable. However, from the plot on the right, there are 5 variables that could be considered for removal.
+```
+## To get a general idea of an overall pattern for a predictor variable compared to a target variable - partial dependence plots.
+```{r}
+partialPlot(rf.ames, training.df, Garage_Area)
+
+## nonlinear and complex relationship between Garage_Area and Sale_Price is similar to the plot we saw earlier with the GAMs.
+```
+
