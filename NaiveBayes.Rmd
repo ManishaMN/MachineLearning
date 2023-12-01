@@ -1,0 +1,104 @@
+---
+title: "Naive Bayes"
+author: "Manisha"
+date: "2023-12-01"
+output: html_document
+---
+
+##  load libraries
+```{r cars}
+
+library(tidyverse)
+```
+
+## loading ames data , Splitting data
+```{r split}
+library(AmesHousing)
+ames <- make_ordinal_ames()
+ames <- ames %>% mutate(id = row_number())
+set.seed(4321)
+training <- ames %>% sample_frac(0.7)
+testing <- anti_join(ames, training, by = 'id')
+```
+
+#after initial exploration, selected variables
+```{r}
+training <- training %>% 
+  select(Sale_Price,
+         Bedroom_AbvGr,
+         Year_Built,
+         Mo_Sold,
+         Lot_Area,
+         Street,
+         Central_Air,
+         First_Flr_SF,
+         Second_Flr_SF,
+         Full_Bath,
+         Half_Bath,
+         Fireplaces,
+         Garage_Area,
+         Gr_Liv_Area, 
+         TotRms_AbvGrd)
+```
+
+#With a continuous target variable, we can just use the naiveBayes function from the e1071 package. The usekernel = TRUE tells the function to use a kernel density estimation for continuous predictor variables instead of a normal distribution. Again, the function will treat the continuous target variable as a categorical variable with a large number of categories.
+
+```{r}
+library(e1071)
+
+set.seed(12345)
+nb.ames <- naiveBayes(Sale_Price ~ ., data = training, laplace = 0, usekernel = TRUE)
+```
+#to tune the Naïve Bayes model parameters, we will need to use the train function from the caret package. However, the train function will only apply the Naïve Bayes classifier to a categorical target variable. We will create a categorical target variable called Bonus that imagines homes selling for more than $175,000 nets the real estate agent a bonus. If Bonus takes a value of 1, the house sold for more than $175,000 and 0 otherwise.
+
+```{r}
+ames <- ames %>%
+  mutate(Bonus = ifelse(Sale_Price > 175000, 1, 0))
+
+set.seed(4321)
+
+training_c <- ames %>% sample_frac(0.7)
+testing_c <- anti_join(ames, training_c, by = 'id')
+
+training_c <- training_c %>% 
+  select(Bonus,
+         Bedroom_AbvGr,
+         Year_Built,
+         Mo_Sold,
+         Lot_Area,
+         Street,
+         Central_Air,
+         First_Flr_SF,
+         Second_Flr_SF,
+         Full_Bath,
+         Half_Bath,
+         Fireplaces,
+         Garage_Area,
+         Gr_Liv_Area, 
+         TotRms_AbvGrd)
+```
+
+
+#In the train function we will tune 3 parameters in the expand.grid. We will allow the algorithm to use either a normal distribution or a kernel distribution with the usekernel option. The other tuning parameters a the Laplace correction (fL) and bandwidth adjustment (adjust).
+
+```{r}
+library(caret)
+library(klaR)
+
+tune_grid <- expand.grid(
+  usekernel = c(TRUE, FALSE),
+  fL = c(0, 0.5, 1),
+  adjust = c(0.1, 0.5, 1)
+)
+
+set.seed(12345)
+nb.ames.caret <- caret::train(factor(Bonus) ~ ., data = training_c,
+                       method = "nb", 
+                       tuneGrid = tune_grid,
+                       trControl = trainControl(method = 'cv', number = 10))
+
+nb.ames.caret$bestTune
+```
+
+#From the output above, the best Naïve Bayes algorithm has a Laplace correction value of 0, a bandwidth adjustment of 0.5, and uses the kernel distributions for continuous predictor variables.
+
