@@ -1,0 +1,176 @@
+---
+title: "NeuralNetwork"
+author: "Manisha"
+date: "2023-12-01"
+output: html_document
+---
+
+## loading ames data , Splitting data
+```{r split}
+library(AmesHousing)
+library(dplyr)
+ames <- make_ordinal_ames()
+ames <- ames %>% mutate(id = row_number())
+set.seed(4321)
+training <- ames %>% sample_frac(0.7)
+testing <- anti_join(ames, training, by = 'id')
+```
+
+#scale function to standardize our data with the z-score method
+
+```{r}
+training <- training %>%
+  mutate(s_SalePrice = scale(Sale_Price),
+         s_Bedroom_AbvGr = scale(Bedroom_AbvGr),
+         s_Year_Built = scale(Year_Built),
+         s_Mo_Sold = scale(Mo_Sold),
+         s_Lot_Area = scale(Lot_Area),
+         s_First_Flr_SF = scale(First_Flr_SF),
+         s_Second_Flr_SF = scale(Second_Flr_SF),
+         s_Garage_Area = scale(Garage_Area),
+         s_Gr_Liv_Area = scale(Gr_Liv_Area),
+         s_TotRms_AbvGrd = scale(TotRms_AbvGrd))
+
+training$Full_Bath <- as.factor(training$Full_Bath)
+training$Half_Bath <- as.factor(training$Half_Bath)
+training$Fireplaces <- as.factor(training$Fireplaces)
+```
+
+#build neural network
+```{r}
+library(nnet)
+library(NeuralNetTools)
+
+set.seed(12345) #formula scaled version of continuous variables
+#nnet can build only single layer neural network
+
+nn.ames <- nnet(Sale_Price ~ 
+                  s_Bedroom_AbvGr + 
+                  s_Year_Built + 
+                  s_Mo_Sold + 
+                  s_Lot_Area + 
+                  s_First_Flr_SF + 
+                  s_Second_Flr_SF + 
+                  s_Garage_Area + 
+                  s_Gr_Liv_Area +
+                  s_TotRms_AbvGrd + 
+                  Street + 
+                  Central_Air +
+                  Full_Bath +
+                  Half_Bath +
+                  Fireplaces
+                  , data = training, 
+                size = 5, #how many options in hidden layer
+                linout = TRUE #linear output instead of logistic
+                )
+```
+
+
+##plotting model object with plot function
+
+```{r}
+plotnet(nn.ames)
+```
+
+
+#the downside of the nnet function is the lack of tuning ability. 
+#Again, we will go to the train function from caret to help. 
+#In the expand.grid for this iteration of the train function we will use the .size and .decay parameters. #The .size parameter controls how many neurons are in our single hidden layer. We will try out values of 3 through 7. 
+#The .decay parameter is a regularization parameter to prevent overfitting. We will use the bestTune element from the model object to see the optimal values of the parameters.
+
+
+```{r}
+library(caret)
+tune_grid <- expand.grid(
+  .size = c(3, 4, 5, 6, 7),
+  .decay = c(0, 0.5, 1)
+)
+
+set.seed(12345)
+nn.ames.caret <- caret::train(Sale_Price ~ 
+                         s_Bedroom_AbvGr + 
+                         s_Year_Built + 
+                         s_Mo_Sold + 
+                         s_Lot_Area + 
+                         s_First_Flr_SF + 
+                         s_Second_Flr_SF + 
+                         s_Garage_Area + 
+                         s_Gr_Liv_Area +
+                         s_TotRms_AbvGrd + 
+                         Street + 
+                         Central_Air +
+                         Full_Bath +
+                         Half_Bath +
+                         Fireplaces
+                       , data = training,
+                        method = "nnet", 
+                        tuneGrid = tune_grid,
+                        trControl = trainControl(method = 'cv', number = 10),
+                       trace = FALSE, linout = TRUE)
+```
+
+
+
+```{r}
+nn.ames.caret$bestTune
+```
+
+#From the output above it seems like the neural network is optimized with 6 neurons in the hidden layer and a decay factor of 1. We can put these back into our original model if we like to better view them with the plot function.
+
+
+#neural network is optimized with 6 neurons in the hidden layer and a decay factor of 1. We can put these back into our original model if we like to better view them with the plot function.
+```{r}
+set.seed(12345)
+nn.ames <- nnet(Sale_Price ~ 
+                  s_Bedroom_AbvGr + 
+                  s_Year_Built + 
+                  s_Mo_Sold + 
+                  s_Lot_Area + 
+                  s_First_Flr_SF + 
+                  s_Second_Flr_SF + 
+                  s_Garage_Area + 
+                  s_Gr_Liv_Area +
+                  s_TotRms_AbvGrd + 
+                  Street + 
+                  Central_Air +
+                  Full_Bath +
+                  Half_Bath +
+                  Fireplaces
+                , data = training, size = 6, decay = 1, linout = TRUE)
+```
+
+
+```{r}
+plotnet(nn.ames)
+```
+
+
+##Neural networks typically do not care about variable selection. All variables are used by default in a complicated and mixed way. However, if you want to do variable selection, you can examine the weights for each variable. If all of the weights for a single variable are low, then you might consider deleting the variables, but again, it is typically not required.
+
+##One way to visualize all the weights in a variable would be to use a Hinton diagram. This diagram is really only good for smaller numbers of variables. With hundreds of variables, a Hinton diagram becomes burdensome to view.
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+```
+
+
+##hinton diagram
+
+```{r}
+nn_weights <- matrix(data = nn.ames$wts[1:132], ncol = 22, nrow = 6, byrow = TRUE)
+colnames(nn_weights) <- c("bias", nn.ames$coefnames)
+rownames(nn_weights) <- c("h1", "h2", "h3", "h4", "h5", "h6")
+
+ggplot(melt(nn_weights), aes(x=Var1, y=Var2, size=abs(value), color=as.factor(sign(value)))) +
+  geom_point(shape = 15) +
+  scale_size_area(max_size = 8) +
+  labs(x = "", y = "", title = "Hinton Diagram of NN Weights") +
+  theme_bw()
+```
+##From the diagram above we see there are few instances of variables having low weights across all of the inputs to the hidden layers. The only ones we see are specific categories in a larger categorical variable. In this scenario, we would probably keep all of our variables.
+
+
+
+
