@@ -1,0 +1,166 @@
+---
+title: "Model Interpretability"
+author: "Manisha"
+date: "2023-12-02"
+output: html_document
+---
+
+##  load libraries
+```{r cars}
+
+library(tidyverse)
+```
+
+## loading ames data , Splitting data
+```{r split}
+library(AmesHousing)
+ames <- make_ordinal_ames()
+ames <- ames %>% mutate(id = row_number())
+set.seed(4321)
+training <- ames %>% sample_frac(0.7)
+testing <- anti_join(ames, training, by = 'id')
+```
+
+#after initial exploration, selected variables
+```{r}
+training <- training %>% 
+  select(Sale_Price,
+         Bedroom_AbvGr,
+         Year_Built,
+         Mo_Sold,
+         Lot_Area,
+         Street,
+         Central_Air,
+         First_Flr_SF,
+         Second_Flr_SF,
+         Full_Bath,
+         Half_Bath,
+         Fireplaces,
+         Garage_Area,
+         Gr_Liv_Area, 
+         TotRms_AbvGrd)
+```
+
+
+#permutation Importance ( random forest)
+```{r}
+library(randomForest)
+training.df <- as.data.frame(training) # we need data in dataframe for random forest
+set.seed(12345)
+rf.ames <- randomForest(Sale_Price ~ ., data = training.df, ntree = 250, importance = TRUE)
+
+varImpPlot(rf.ames,
+           sort = TRUE,
+           n.var = 10,
+           main = "Top 10 - Variable Importance", type = 1)
+
+```
+## % increase in impurity and node purity
+
+```{r}
+importance(rf.ames)
+```
+
+##
+
+```{r}
+training.df$pred_rf <- predict(rf.ames)
+```
+
+
+
+```{r}
+library(iml)
+
+lm.ames <- lm(Sale_Price ~ ., data = training)
+
+summary(lm.ames)
+```
+
+```{r}
+linear_pred <- Predictor$new(lm.ames, data = training[,-1], 
+                             y = training$Sale_Price, type = "response")
+plot(FeatureImp$new(linear_pred, loss = "mse"))
+```
+##Partial Dependence 
+
+```{r}
+library(patchwork)
+
+set.seed(12345)
+forest_pred <- Predictor$new(rf.ames, data = training[,-1], 
+                             y = training$Sale_Price, type = "response")
+
+#ice_plot <- FeatureEffects$new(forest_pred, method = "ice")
+#ice_plot$plot(c("Garage_Area"))
+```
+
+
+```{r}
+pd_plot <- FeatureEffects$new(forest_pred, method = "pdp")
+pd_plot$plot(c("Garage_Area"))
+```
+
+##All variables partial dependence plot
+```{r}
+pd_plot$plot()
+```
+
+##Partial dependence and ICE
+
+```{r}
+pdice_plot <- FeatureEffects$new(forest_pred, method = "pdp+ice")
+pdice_plot$plot(c("Garage_Area"))
+```
+
+
+
+
+## ALE Plot
+
+```{r}
+ale_plot <- FeatureEffects$new(
+ forest_pred,
+ method = "ale")
+ale_plot$plot(c("Garage_Area"))
+```
+
+
+##ICe plot
+
+```{r}
+set.seed(12345)
+forest_pred <- Predictor$new(rf.ames,
+ data = training[,-1],
+ y = training$Sale_Price,
+ type = "response")
+ice_plot <- FeatureEffects$new(forest_pred,
+ method = "ice")
+ice_plot$plot(c("Garage_Area"))
+```
+
+
+##LIME
+
+```{r}
+point <- 1328
+lime.explain <- LocalModel$new(forest_pred, x.interest = training[point,-1], k = 5)
+plot(lime.explain) + theme_bw()
+```
+
+##
+```{r}
+point <- 1000
+lime.explain <- LocalModel$new(forest_pred, x.interest = training[point,-1], k = 5)
+plot(lime.explain)
+```
+
+
+## Shapley
+```{r}
+point <- 1328
+shap <- Shapley$new(forest_pred,
+ x.interest = training[point,-1])
+shap$plot()
+```
+
